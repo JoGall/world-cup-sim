@@ -1,0 +1,7 @@
+,X,team1,team2,round,Group,ft.A,ft.B,et.A,et.B,pen.A,pen.B,winner,loser,elo.delta.A,elo.delta.B,iter
+1,330,Germany,Mexico,0,F,0,1,NA,NA,NA,NA,Mexico,Germany,-48,48,6
+2,332,Sweden,South Korea,0,F,0,1,NA,NA,NA,NA,NA,NA,26,-26,6
+3,348,South Korea,Mexico,0,F,1,1,NA,NA,NA,NA,South Korea,Mexico,-15,15,6
+4,349,Germany,Sweden,0,F,1,1,NA,NA,NA,NA,Germany,Sweden,20,-20,6
+5,361,Mexico,Sweden,0,F,0,1,NA,NA,NA,NA,Mexico,Sweden,23,-23,6
+6,362,South Korea,Germany,0,F,0,1,NA,NA,NA,NA,Germany,South Korea,78,-78,6

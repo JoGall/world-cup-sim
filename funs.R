@@ -137,41 +137,24 @@ updateElo <- function(result, teams) {
 
 # Match generation functions --------------------------------------------------
 
-# make group stage table
-makeTable <- function(dat) {
-  
-  rbind(dat %>% 
-          select(group = Group, team = team1, opp = team2, gf = ft.A, ga = ft.B),
-        dat %>% 
-          select(group = Group, team = team2, opp = team1, gf = ft.B, ga = ft.A)) %>% 
-    mutate(pts = if_else(gf > ga, 3, if_else(gf < ga, 0, 1))) %>% 
-    group_by(team) %>% 
-    summarise(group = group[1], pts = as.integer(sum(pts)), gf = sum(gf), ga = sum(ga), gd = gf - ga) %>% 
-    arrange(group, -pts, -gd, -gf) %>% 
-    ungroup() %>% 
-    mutate(team = as.character(team)) %>%  
-    as.data.frame()
-  
-}
-
 knockoutMatches <- function(group_tables) {
   
-  data.frame(team1 = c(group_tables[group_tables$group == "A","team"][1],
-                       group_tables[group_tables$group == "C","team"][1],
-                       group_tables[group_tables$group == "B","team"][1],
-                       group_tables[group_tables$group == "D","team"][1],
-                       group_tables[group_tables$group == "E","team"][1],
-                       group_tables[group_tables$group == "G","team"][1],
-                       group_tables[group_tables$group == "F","team"][1],
-                       group_tables[group_tables$group == "H","team"][1]),
-             team2 = c(group_tables[group_tables$group == "B","team"][2],
-                       group_tables[group_tables$group == "D","team"][2],
-                       group_tables[group_tables$group == "A","team"][2],
-                       group_tables[group_tables$group == "C","team"][2],
-                       group_tables[group_tables$group == "F","team"][2],
-                       group_tables[group_tables$group == "H","team"][2],
-                       group_tables[group_tables$group == "E","team"][2],
-                       group_tables[group_tables$group == "G","team"][2])) %>% 
+  data.frame(team1 = c(group_tables[group_tables$Group == "A","team"][1],
+                       group_tables[group_tables$Group == "C","team"][1],
+                       group_tables[group_tables$Group == "B","team"][1],
+                       group_tables[group_tables$Group == "D","team"][1],
+                       group_tables[group_tables$Group == "E","team"][1],
+                       group_tables[group_tables$Group == "G","team"][1],
+                       group_tables[group_tables$Group == "F","team"][1],
+                       group_tables[group_tables$Group == "H","team"][1]),
+             team2 = c(group_tables[group_tables$Group == "B","team"][2],
+                       group_tables[group_tables$Group == "D","team"][2],
+                       group_tables[group_tables$Group == "A","team"][2],
+                       group_tables[group_tables$Group == "C","team"][2],
+                       group_tables[group_tables$Group == "F","team"][2],
+                       group_tables[group_tables$Group == "H","team"][2],
+                       group_tables[group_tables$Group == "E","team"][2],
+                       group_tables[group_tables$Group == "G","team"][2])) %>% 
     mutate(team1 = as.character(team1), 
            team2 = as.character(team2),
            round = 1)
@@ -228,16 +211,22 @@ finalMatch <- function(semi_results) {
 
 # Main simulation function ----------------------------------------------------
 
-simulateTournament <- function(teams, group_matches) {
+simulateTournament <- function(teams, group_matches, prev_results = NULL) {
   
+  # simulate remaining group stage matches
   group_results <- lapply(1:nrow(group_matches), function(x) {
     simMatch(group_matches[x,], teams)
   }) %>% 
     plyr::rbind.fill()
   
+  # append previous results if they exist
+  if(length(prev_results>0)) {
+    group_results <- rbind(prev_results, group_results)
+  }
+  
   group_tables <- group_results %>% 
     group_by(Group) %>% 
-    makeTable() %>% 
+    do(makeTable(.)) %>% 
     as.data.frame()
   
   knockout_matches <- knockoutMatches(group_tables)
@@ -308,18 +297,101 @@ realMatch <- function(result, teams) {
   
 }
 
+# make group stage tables -----------------------------------------------------
+
+makeTable <- function(dat) {
+  
+  # lengthen results dataframe
+  dat2 <- rbind(dat %>% 
+                  select(Group, team = team1, opp = team2, gf = ft.A, ga = ft.B),
+                dat %>% 
+                  select(Group, team = team2, opp = team1, gf = ft.B, ga = ft.A))
+  
+  # first ranking
+  dat3 <- dat2 %>% 
+    mutate(pts = if_else(gf > ga, 3, if_else(gf < ga, 0, 1))) %>% 
+    group_by(team) %>% 
+    summarise(Group = Group[1], pts = as.integer(sum(pts)), gf = sum(gf), ga = sum(ga), gd = gf - ga) %>% 
+    arrange(-pts, -gd, -gf)
+  
+  # rank descending by multiple variables in decreasing order of importance
+  dat3 <- dat3 %>% 
+    mutate(score = pts*1e5 + gd*1e3 + gf) %>% 
+    mutate(pos = dense_rank(-score)) %>% 
+    select(-score)
+  
+  # check for ties
+  ties <- dat3 %>% 
+    group_by(pos) %>% 
+    summarise(n = n()) %>% 
+    filter(n > 1)
+  
+  # if ties
+  if(any(ties$n > 1)) {
+    
+    # for each tie
+    dat4 <- lapply(unique(ties$pos), function(i) {
+      
+      # create mini-league from tied teams fixtures
+      teams <- dat3[dat3$pos == i,]$team
+      ss1 <- dat[dat$team1 %in% teams & dat$team2 %in% teams,]
+      
+      # recursion of previous ranking method
+      ss2 <- rbind(ss1 %>% 
+                     select(Group, team = team1, opp = team2, gf = ft.A, ga = ft.B),
+                   ss1 %>% 
+                     select(Group, team = team2, opp = team1, gf = ft.B, ga = ft.A))
+      
+      # first order ranking
+      ss2 %>% 
+        mutate(pts = if_else(gf > ga, 3, if_else(gf < ga, 0, 1))) %>% 
+        group_by(team) %>% 
+        summarise(Group = Group[1], h2h.pts = as.integer(sum(pts)), h2h.gf = sum(gf), h2h.ga = sum(ga), h2h.gd = h2h.gf - h2h.ga) %>% 
+        mutate(randomiser = runif(n(), 0, 1)) %>% 
+        arrange(-h2h.pts, -h2h.gd, -h2h.gf, -randomiser) %>% 
+        mutate(score = h2h.pts*1e5 + h2h.gd*1e3 + h2h.gf) %>% 
+        mutate(pos = dense_rank(-score)) %>% 
+        select(-score, -h2h.ga, -pos)
+      
+      # # check for ties
+      # ss_ties <- ss3 %>% 
+      #   group_by(pos) %>% 
+      #   summarise(n = n()) %>% 
+      #   filter(n > 1)
+      # 
+      # # if still ties
+      # if(any(ss_ties$n > 1)) {
+      #   # then cointoss (randomiser to account for >1 tied team)
+      #   ss3 <- ss3 %>% 
+      #     mutate(randomiser = runif(n(), 0, 1)) %>% 
+      #     arrange(-randomiser)
+      # }
+      
+    }) %>% 
+      plyr::rbind.fill()
+    
+    # re-rank by new tiebreaker variables
+    dat3 <- left_join(dat3, dat4, by = c("Group", "team")) %>% 
+      arrange(-pts, -gd, -gf, -h2h.pts, -h2h.gf, -h2h.gd, -randomiser) %>% 
+      mutate(pos = 1:n()) %>% 
+      select(Group, pos, team, pts, gf, ga, gd)
+    
+  }
+  
+  dat3 %>% 
+    select(Group, pos, team, pts, gf, ga, gd)
+  
+}
+
 # Diagnostic functions -----------------------------------------------------
 
 probTables <- function(dat) {
   
   dat2 <- dat %>% 
+    filter(round == 0) %>% 
     group_by(iter) %>% 
-    slice(1:48) %>% 
     group_by(iter, Group) %>% 
     do(makeTable(.)) %>% 
-    as.data.frame() %>% 
-    group_by(iter) %>% 
-    mutate(pos = rep(1:4, 8)) %>% 
     ungroup() %>%
     group_by(Group, team) %>% 
     mutate(n = n()) %>% 
@@ -337,35 +409,40 @@ probTables <- function(dat) {
     arrange(-pc) %>% 
     slice(1)
   
+  # create scores to generate a rank order of predicted positions
   preds <- dat3 %>% 
-    group_by(Group, pos) %>% 
-    arrange(-pc) %>% 
-    slice(1) %>% 
-    select(Group, team, pred = pos)
+    group_by(Group, team) %>%
+    arrange(Group, team, pos) %>% 
+    mutate(score = pc[1]*4 + pc[2]*3 + pc[3]*2 + pc[4]) %>%
+    summarise(score = score[1]) %>% 
+    arrange(Group, -score) %>% 
+    mutate(pred = 1:4)
   
   dat4 <- left_join(dat3, preds, by = c("Group", "team"))
   
   dat4 %>%  
-    arrange(Group, -pos, -pc) %>% 
-    mutate(pc = round(pc, 2))
+    arrange(Group, pos) %>% 
+    mutate(pc = round(pc, 2)) %>% 
+    ungroup
   
 }
 
 
 plotTables <- function(dat) {
   
-  ggplot(filter(dat), aes(as.factor(pos), reorder(team, desc(pred)), fill = pc)) +
+  ggplot(dat, aes(as.factor(pos), reorder(team, desc(pred)), fill = pc)) +
     geom_tile() +
-    geom_text(aes(label = pc*100)) +
-    scale_fill_gradient(low = "white", high = "steelblue") +
+    geom_text(aes(label = pc*100), size = 5) +
+    scale_fill_gradient(low = "white", high = "#82b446") +
     geom_rect(xmin = 0.5, xmax = 4.5, ymin = 0.5, ymax = 4.5, fill = NA, colour = "black") +
     scale_x_discrete(labels = c("1st", "2nd", "3rd", "4th"), expand = c(0,0)) +
     scale_y_discrete(expand = c(0,0)) +
     guides(fill = F) +
-    facet_wrap(~Group, scales = "free") +
+    facet_wrap(~Group, scales = "free", ncol = 4) +
     theme_bw() +
     theme(axis.title = element_blank(),
-          axis.text = element_text(size = 12))
+          axis.text = element_text(size = 14),
+          theme(strip.text.x = element_text(size = 14))
   
 }
 
